@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: AWS CloudFormation workshop - Nested stacks - Root template (uksb-1q9p31idr) (tag:nested-stacks).
+
+Parameters:
+  S3BucketName:
+    Description: S3 bucket name for the Nested Stacks. S3 bucket name can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
+    Type: String
+    AllowedPattern: ^(?!(^xn--|.+-s3alias$))^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$
+    ConstraintDescription: Bucket name can include numbers, lowercase letters, uppercase letters, periods (.), and hyphens (-). It cannot start or end with a hyphen (-).
+
+  VPCName:
+    Description: The name of the VPC.
+    Type: String
+
+  InstanceKeyPairName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+  InstanceAmiId:
+    Description: EC2 Ami Id
+    Type: AWS::EC2::Image::Id
+
+  InstanceType:
+    Description: Instance Type
+    Type: String
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+    Default: t2.micro
+
+  SshLocation:
+    Description: Allowed IP range to SSH to instance
+    Type: String
+    Default: 0.0.0.0/0
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+
+Resources:
+  VpcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${S3BucketName}.s3.amazonaws.com/vpc.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        VPCName: !Ref VPCName
+
+  AutoScalingStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VpcStack
+    Properties:
+      TemplateURL: !Sub https://${S3BucketName}.s3.amazonaws.com/asg.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        VPC: !GetAtt VpcStack.Outputs.VPCId
+        Subnets: !Sub ${VpcStack.Outputs.PublicSubnet1},${VpcStack.Outputs.PublicSubnet2}
+        AZs: !Sub ${VpcStack.Outputs.PublicSubnet1AZ},${VpcStack.Outputs.PublicSubnet2AZ}
+        KeyName: !Ref InstanceKeyPairName
+        AmiId: !Ref InstanceAmiId
+        InstanceType: !Ref InstanceType
+        SSHLocation: !Ref SshLocation
+
+Outputs:
+  WebUrl:
+    Description: URL of the external load balancer of the web
+    Value: !GetAtt AutoScalingStack.Outputs.URL
